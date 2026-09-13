@@ -227,6 +227,11 @@ event; it must be inferred.
 
 ## 6. Known traps
 
+- **Placeholder vehicle IDs.** Live polls include `vehicleId=000` (and
+  occasionally other reused ids) with many parallel predictions. That is
+  not a single train. Leave those rows in `data/raw/`; do not treat them
+  as a trajectory. `src/ingest.py sequences` omits `000` from the eyeball
+  sample for this reason.
 - **Cache staleness.** TfL caches responses; "the prediction at time t" may be
   seconds old. `timeToLive` and their `timestamp` tell you how stale. Treat
   lag as a measured quantity, not zero.
