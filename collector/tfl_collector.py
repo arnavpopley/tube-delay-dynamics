@@ -370,11 +370,11 @@ def log_health(last_success_ts: datetime | None, stale_seconds: int) -> None:
         )
 
 
-def poll_once(app_key: str, timeout: float) -> tuple[bool, int, str | None]:
+def poll_once(app_key: str, timeout: float) -> tuple[bool, int, str | None, str]:
     """Run one arrivals+status cycle.
 
-    Returns (success, arrival_count, error_message). Success means the
-    Arrivals request succeeded. Status failures are logged but do not
+    Returns (success, arrival_count, error_message, poll_id). Success means
+    the Arrivals request succeeded. Status failures are logged but do not
     by themselves mark the cycle as a total failure — arrivals are the
     dataset. An arrivals failure *is* a failed poll.
     """
@@ -447,7 +447,7 @@ def poll_once(app_key: str, timeout: float) -> tuple[bool, int, str | None]:
         if error_message is None:
             error_message = status_error
 
-    return arrivals_ok, arrival_count, error_message
+    return arrivals_ok, arrival_count, error_message, poll_id
 
 
 def configure_logging(level_name: str) -> None:
@@ -507,18 +507,20 @@ def main(argv: list[str] | None = None) -> int:
 
     while not _shutdown:
         attempt_ts = utc_now()
+        poll_id: str | None = None
         try:
-            ok, arrival_count, error_message = poll_once(app_key, timeout)
+            ok, arrival_count, error_message, poll_id = poll_once(app_key, timeout)
         except Exception:
             log.exception("unexpected error during poll cycle")
             ok, arrival_count, error_message = False, 0, "unexpected exception"
+            poll_id = str(uuid.uuid4())
             append_jsonl(
                 hourly_jsonl("failures", attempt_ts),
                 [
                     {
                         "request_ts": ts_iso(attempt_ts),
                         "response_ts": ts_iso(utc_now()),
-                        "poll_id": str(uuid.uuid4()),
+                        "poll_id": poll_id,
                         "endpoint": "cycle",
                         "error_type": "unexpected",
                         "error_message": "unexpected exception; see collector logs",
@@ -533,7 +535,7 @@ def main(argv: list[str] | None = None) -> int:
         write_heartbeat(
             last_success_ts=last_success_ts,
             last_attempt_ts=attempt_ts,
-            last_poll_id=None,
+            last_poll_id=poll_id,
             last_arrival_count=last_arrival_count,
             last_error=None if ok else error_message,
             stale_seconds=stale_seconds,
