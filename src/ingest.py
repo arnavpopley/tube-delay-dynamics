@@ -53,6 +53,14 @@ def glob_or_none(directory: Path, pattern: str) -> str | None:
     return str(directory / pattern)
 
 
+def sql_lit(value: str) -> str:
+    """Quote a filesystem path for interpolation into DuckDB SQL.
+
+    CREATE VIEW / COPY cannot take prepared parameters for file paths.
+    """
+    return "'" + value.replace("'", "''") + "'"
+
+
 def compact(raw_dir: Path, processed_dir: Path) -> dict[str, int]:
     """Read hourly JSONL, write Parquet partitioned by date and line.
 
@@ -74,14 +82,14 @@ def compact(raw_dir: Path, processed_dir: Path) -> dict[str, int]:
         arrivals_out = processed_dir / "arrivals"
         arrivals_out.mkdir(parents=True, exist_ok=True)
         con.execute(
-            """
+            f"""
             CREATE OR REPLACE VIEW arrivals_src AS
             SELECT
                 request_ts::TIMESTAMPTZ AS request_ts,
                 response_ts::TIMESTAMPTZ AS response_ts,
                 poll_id,
                 tflPredictionId,
-                timestamp::TIMESTAMPTZ AS tfl_timestamp,
+                "timestamp"::TIMESTAMPTZ AS tfl_timestamp,
                 timeToLive::TIMESTAMPTZ AS time_to_live,
                 vehicleId AS vehicle_id,
                 naptanId AS naptan_id,
@@ -100,31 +108,29 @@ def compact(raw_dir: Path, processed_dir: Path) -> dict[str, int]:
                 timingRead::TIMESTAMPTZ AS timing_read,
                 timingSent::TIMESTAMPTZ AS timing_sent,
                 CAST(request_ts AS DATE) AS poll_date
-            FROM read_json_auto(?, format := 'newline_delimited', ignore_errors := false)
-            """,
-            [arrivals_glob],
+            FROM read_json_auto({sql_lit(arrivals_glob)}, format := 'newline_delimited', ignore_errors := false)
+            """
         )
         counts["arrivals"] = con.execute("SELECT COUNT(*) FROM arrivals_src").fetchone()[0]
         # OVERWRITE replaces derived parquet only. Raw JSONL is not on this path.
         con.execute(
-            """
+            f"""
             COPY (
                 SELECT * FROM arrivals_src
-            ) TO ? (
+            ) TO {sql_lit(str(arrivals_out))} (
                 FORMAT PARQUET,
                 PARTITION_BY (poll_date, line_id),
                 OVERWRITE,
                 COMPRESSION ZSTD
             )
-            """,
-            [str(arrivals_out)],
+            """
         )
 
     if status_glob:
         status_out = processed_dir / "status"
         status_out.mkdir(parents=True, exist_ok=True)
         con.execute(
-            """
+            f"""
             CREATE OR REPLACE VIEW status_src AS
             SELECT
                 request_ts::TIMESTAMPTZ AS request_ts,
@@ -137,30 +143,28 @@ def compact(raw_dir: Path, processed_dir: Path) -> dict[str, int]:
                 reason,
                 created,
                 CAST(request_ts AS DATE) AS poll_date
-            FROM read_json_auto(?, format := 'newline_delimited', ignore_errors := false)
-            """,
-            [status_glob],
+            FROM read_json_auto({sql_lit(status_glob)}, format := 'newline_delimited', ignore_errors := false)
+            """
         )
         counts["status"] = con.execute("SELECT COUNT(*) FROM status_src").fetchone()[0]
         con.execute(
-            """
+            f"""
             COPY (
                 SELECT * FROM status_src
-            ) TO ? (
+            ) TO {sql_lit(str(status_out))} (
                 FORMAT PARQUET,
                 PARTITION_BY (poll_date, line_id),
                 OVERWRITE,
                 COMPRESSION ZSTD
             )
-            """,
-            [str(status_out)],
+            """
         )
 
     if failures_glob:
         failures_out = processed_dir / "failures"
         failures_out.mkdir(parents=True, exist_ok=True)
         con.execute(
-            """
+            f"""
             CREATE OR REPLACE VIEW failures_src AS
             SELECT
                 request_ts::TIMESTAMPTZ AS request_ts,
@@ -171,40 +175,37 @@ def compact(raw_dir: Path, processed_dir: Path) -> dict[str, int]:
                 error_message,
                 http_status,
                 CAST(request_ts AS DATE) AS poll_date
-            FROM read_json_auto(?, format := 'newline_delimited', ignore_errors := false)
-            """,
-            [failures_glob],
+            FROM read_json_auto({sql_lit(failures_glob)}, format := 'newline_delimited', ignore_errors := false)
+            """
         )
         counts["failures"] = con.execute("SELECT COUNT(*) FROM failures_src").fetchone()[0]
         con.execute(
-            """
+            f"""
             COPY (
                 SELECT * FROM failures_src
-            ) TO ? (
+            ) TO {sql_lit(str(failures_out))} (
                 FORMAT PARQUET,
                 PARTITION_BY (poll_date),
                 OVERWRITE,
                 COMPRESSION ZSTD
             )
-            """,
-            [str(failures_out)],
+            """
         )
 
     con.close()
     return counts
 
 
-def _arrivals_relation_sql(processed_dir: Path, raw_dir: Path) -> tuple[str, list[str]]:
+def _arrivals_relation_sql(processed_dir: Path, raw_dir: Path) -> str:
     """Prefer compacted Parquet; fall back to raw JSONL so quality can run
     before the first compact."""
     parquet = processed_dir / "arrivals"
     if any(parquet.rglob("*.parquet")):
-        return "read_parquet(?, hive_partitioning := true)", [str(parquet / "**/*.parquet")]
+        return f"read_parquet({sql_lit(str(parquet / '**/*.parquet'))}, hive_partitioning := true)"
     arrivals_glob = glob_or_none(raw_dir, "arrivals/*/*.jsonl")
     if arrivals_glob is None:
         raise FileNotFoundError(f"no arrivals data under {raw_dir} or {processed_dir}")
-    return (
-        """(
+    return f"""(
             SELECT
                 request_ts::TIMESTAMPTZ AS request_ts,
                 poll_id,
@@ -214,44 +215,39 @@ def _arrivals_relation_sql(processed_dir: Path, raw_dir: Path) -> tuple[str, lis
                 lineId AS line_id,
                 timeToStation::INTEGER AS time_to_station,
                 expectedArrival::TIMESTAMPTZ AS expected_arrival,
-                timestamp::TIMESTAMPTZ AS tfl_timestamp,
+                "timestamp"::TIMESTAMPTZ AS tfl_timestamp,
                 CAST(request_ts AS DATE) AS poll_date
-            FROM read_json_auto(?, format := 'newline_delimited')
-        )""",
-        [arrivals_glob],
-    )
+            FROM read_json_auto({sql_lit(arrivals_glob)}, format := 'newline_delimited')
+        )"""
 
 
-def _failures_relation_sql(processed_dir: Path, raw_dir: Path) -> tuple[str | None, list[str]]:
+def _failures_relation_sql(processed_dir: Path, raw_dir: Path) -> str | None:
     parquet = processed_dir / "failures"
     if any(parquet.rglob("*.parquet")):
-        return "read_parquet(?, hive_partitioning := true)", [str(parquet / "**/*.parquet")]
+        return f"read_parquet({sql_lit(str(parquet / '**/*.parquet'))}, hive_partitioning := true)"
     failures_glob = glob_or_none(raw_dir, "failures/*/*.jsonl")
     if failures_glob is None:
-        return None, []
-    return (
-        """(
+        return None
+    return f"""(
             SELECT
                 request_ts::TIMESTAMPTZ AS request_ts,
                 poll_id,
                 endpoint,
                 error_message,
                 CAST(request_ts AS DATE) AS poll_date
-            FROM read_json_auto(?, format := 'newline_delimited')
-        )""",
-        [failures_glob],
-    )
+            FROM read_json_auto({sql_lit(failures_glob)}, format := 'newline_delimited')
+        )"""
 
 
 def quality_report(raw_dir: Path, processed_dir: Path, results_dir: Path) -> Path:
     """Polls per hour, records per poll, gaps, failure rate, vehicles per line/day."""
     con = connect()
-    rel_sql, rel_params = _arrivals_relation_sql(processed_dir, raw_dir)
-    con.execute(f"CREATE OR REPLACE VIEW arrivals AS SELECT * FROM {rel_sql}", rel_params)
+    rel_sql = _arrivals_relation_sql(processed_dir, raw_dir)
+    con.execute(f"CREATE OR REPLACE VIEW arrivals AS SELECT * FROM {rel_sql}")
 
-    fail_sql, fail_params = _failures_relation_sql(processed_dir, raw_dir)
+    fail_sql = _failures_relation_sql(processed_dir, raw_dir)
     if fail_sql:
-        con.execute(f"CREATE OR REPLACE VIEW failures AS SELECT * FROM {fail_sql}", fail_params)
+        con.execute(f"CREATE OR REPLACE VIEW failures AS SELECT * FROM {fail_sql}")
     else:
         con.execute(
             """
@@ -496,8 +492,8 @@ def dump_sequences(
     so a human can confirm it decays (mostly) toward zero.
     """
     con = connect()
-    rel_sql, rel_params = _arrivals_relation_sql(processed_dir, raw_dir)
-    con.execute(f"CREATE OR REPLACE VIEW arrivals AS SELECT * FROM {rel_sql}", rel_params)
+    rel_sql = _arrivals_relation_sql(processed_dir, raw_dir)
+    con.execute(f"CREATE OR REPLACE VIEW arrivals AS SELECT * FROM {rel_sql}")
 
     pairs = con.execute(
         """
@@ -518,8 +514,8 @@ def dump_sequences(
         "",
         "Phase 1 eyeball test: `time_to_station` should generally decay toward",
         "zero along each (vehicleId, naptanId) series. Increases between polls",
-        "are normal (TfL revising) and are themselves data. This file does",
-        "**not** infer an arrival time.",
+        "are normal (TfL revising) and are themselves data.",
+        "This file does **not** infer an arrival time.",
         "",
         f"Pairs listed: {len(pairs)} (requested {n_pairs}, min {min_points} points).",
         "",
