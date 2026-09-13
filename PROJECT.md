@@ -127,7 +127,7 @@ verified.
 ### Phase 0 — get collecting (do this first, today)
 
 - [x] Repo initialised, `.gitignore` excludes `.env` and `data/`
-- [ ] `collector/tfl_collector.py` running against a real `TFL_APP_KEY`
+- [x] `collector/tfl_collector.py` running against a real `TFL_APP_KEY`
 - [ ] Deployed somewhere always-on (Pi / VPS / spare machine), as a systemd
       service or Docker container with restart-on-failure
 - [ ] Verified after 20 minutes: `data/raw/arrivals/` filling, roughly 400–700
