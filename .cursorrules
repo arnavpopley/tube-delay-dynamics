@@ -1,0 +1,16 @@
+Read PROJECT.md before making any changes. It is the standing brief for this
+repo: what the research is, what must never be broken, and what to build next.
+
+Follow the phase order in §5. Do not start a phase before the one above it is
+verified. The current stop is written at the top of PROJECT.md.
+
+Do not write src/reconstruct.py, or any arrival-time inference, until a full
+day of data exists and the Phase 1 manual sequence check has been done by hand.
+
+Non-negotiables (§2) invalidate the research if broken, not merely the code:
+
+1. Point-in-time logging of TfL predictions. Never back-fill.
+2. data/raw/ is append-only. Never overwrite raw files.
+3. Failed polls get their own records. Silence is not a valid encoding of failure.
+4. Time-ordered / blocked splits only. No random train/test splits.
+5. Ignore forecast horizons under ~2 minutes in any modelling.

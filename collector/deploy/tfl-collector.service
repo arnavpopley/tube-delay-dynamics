@@ -1,0 +1,45 @@
+"""
+# TfL collector — systemd unit
+
+Drop-in unit for an always-on host (Pi / VPS / spare machine).
+Restart=always is the point: every hour this isn't running is an hour of
+data that cannot be recovered.
+
+Install (adjust User, paths, and the venv python):
+
+    sudo cp collector/deploy/tfl-collector.service /etc/systemd/system/
+    sudo systemctl daemon-reload
+    sudo systemctl enable --now tfl-collector.service
+
+Optional health timer (logs loudly via the script's stderr if stale):
+
+    sudo cp collector/deploy/tfl-collector-health.service /etc/systemd/system/
+    sudo cp collector/deploy/tfl-collector-health.timer /etc/systemd/system/
+    sudo systemctl daemon-reload
+    sudo systemctl enable --now tfl-collector-health.timer
+"""
+
+[Unit]
+Description=TfL Tube Delay Dynamics collector
+Documentation=file:///opt/tube-delay-dynamics/PROJECT.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tfl
+Group=tfl
+WorkingDirectory=/opt/tube-delay-dynamics
+EnvironmentFile=-/opt/tube-delay-dynamics/.env
+# stdlib-only; system python is enough if you don't want a venv
+ExecStart=/opt/tube-delay-dynamics/.venv/bin/python /opt/tube-delay-dynamics/collector/tfl_collector.py
+Restart=always
+RestartSec=5
+# Give hung polls time to die before SIGKILL
+TimeoutStopSec=40
+Nice=10
+# Do not buffer logs; journald should see HEALTH CHECK FAILED lines immediately
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

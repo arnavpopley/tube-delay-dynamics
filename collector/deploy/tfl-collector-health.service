@@ -1,0 +1,12 @@
+[Unit]
+Description=TfL collector health check (fail if no successful poll in 10 minutes)
+After=tfl-collector.service
+
+[Service]
+Type=oneshot
+User=tfl
+Group=tfl
+WorkingDirectory=/opt/tube-delay-dynamics
+EnvironmentFile=-/opt/tube-delay-dynamics/.env
+ExecStart=/opt/tube-delay-dynamics/.venv/bin/python /opt/tube-delay-dynamics/collector/healthcheck.py
+# OnFailure can page you; by default the CRITICAL line in the journal is the alert.

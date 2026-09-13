@@ -1,0 +1,14 @@
+services:
+  collector:
+    build:
+      context: ../..
+      dockerfile: collector/deploy/Dockerfile
+    restart: always
+    env_file:
+      - ../../.env
+    environment:
+      PYTHONUNBUFFERED: "1"
+      DATA_DIR: /app/data
+    volumes:
+      # Bind the host data directory so a container rebuild cannot wipe raw logs.
+      - ../../data:/app/data
