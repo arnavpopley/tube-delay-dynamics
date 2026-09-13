@@ -213,6 +213,7 @@ def _arrivals_relation_sql(processed_dir: Path, raw_dir: Path) -> str:
                 naptanId AS naptan_id,
                 stationName AS station_name,
                 lineId AS line_id,
+                platformName AS platform_name,
                 timeToStation::INTEGER AS time_to_station,
                 expectedArrival::TIMESTAMPTZ AS expected_arrival,
                 "timestamp"::TIMESTAMPTZ AS tfl_timestamp,
@@ -486,10 +487,14 @@ def dump_sequences(
     n_pairs: int = 20,
     min_points: int = 5,
 ) -> Path:
-    """Pull N (vehicle_id, naptan_id) series for the Phase 1 eyeball check.
+    """Pull N (vehicle, station, platform) series for the Phase 1 eyeball check.
 
     Does not estimate arrival. Sorts by request_ts and prints time_to_station
     so a human can confirm it decays (mostly) toward zero.
+
+    Placeholder vehicleId `000` is excluded from the sample (it is still in
+    raw data). Live polls often attach many parallel predictions to that id,
+    which is not a usable single-train series.
     """
     con = connect()
     rel_sql = _arrivals_relation_sql(processed_dir, raw_dir)
@@ -497,13 +502,17 @@ def dump_sequences(
 
     pairs = con.execute(
         """
-        SELECT vehicle_id, naptan_id, station_name, line_id, COUNT(*) AS n_obs,
+        SELECT vehicle_id, naptan_id, station_name, line_id, platform_name,
+               COUNT(DISTINCT poll_id) AS n_polls,
+               COUNT(*) AS n_obs,
                MIN(request_ts) AS first_ts, MAX(request_ts) AS last_ts
         FROM arrivals
-        WHERE vehicle_id IS NOT NULL AND naptan_id IS NOT NULL
-        GROUP BY 1, 2, 3, 4
-        HAVING COUNT(*) >= ?
-        ORDER BY n_obs DESC
+        WHERE vehicle_id IS NOT NULL
+          AND vehicle_id NOT IN ('', '000')
+          AND naptan_id IS NOT NULL
+        GROUP BY 1, 2, 3, 4, 5
+        HAVING COUNT(DISTINCT poll_id) >= ?
+        ORDER BY n_polls DESC, n_obs DESC
         LIMIT ?
         """,
         [min_points, n_pairs],
@@ -513,30 +522,48 @@ def dump_sequences(
         "# Sequence samples for manual check",
         "",
         "Phase 1 eyeball test: `time_to_station` should generally decay toward",
-        "zero along each (vehicleId, naptanId) series. Increases between polls",
-        "are normal (TfL revising) and are themselves data.",
+        "zero along each (vehicleId, naptanId, platform) series. Increases",
+        "between polls are normal (TfL revising) and are themselves data.",
         "This file does **not** infer an arrival time.",
         "",
-        f"Pairs listed: {len(pairs)} (requested {n_pairs}, min {min_points} points).",
+        "Placeholder `vehicleId=000` is omitted from this sample; it remains",
+        "in `data/raw/`. Do not treat it as one train.",
+        "",
+        f"Pairs listed: {len(pairs)} (requested {n_pairs}, min {min_points} polls).",
         "",
     ]
 
     if not pairs:
         lines.append("No pairs with enough observations yet. Collect longer.")
     else:
-        for vehicle_id, naptan_id, station_name, line_id, n_obs, first_ts, last_ts in pairs:
+        for (
+            vehicle_id,
+            naptan_id,
+            station_name,
+            line_id,
+            platform_name,
+            n_polls,
+            n_obs,
+            first_ts,
+            last_ts,
+        ) in pairs:
             series = con.execute(
                 """
                 SELECT request_ts, time_to_station, expected_arrival
                 FROM arrivals
-                WHERE vehicle_id = ? AND naptan_id = ?
+                WHERE vehicle_id = ?
+                  AND naptan_id = ?
+                  AND platform_name IS NOT DISTINCT FROM ?
                 ORDER BY request_ts
                 """,
-                [vehicle_id, naptan_id],
+                [vehicle_id, naptan_id, platform_name],
             ).fetchall()
-            lines.append(f"## {line_id} / {vehicle_id} → {station_name} (`{naptan_id}`)")
+            lines.append(
+                f"## {line_id} / {vehicle_id} → {station_name} (`{naptan_id}`)"
+            )
             lines.append("")
-            lines.append(f"{n_obs} observations, {first_ts} → {last_ts}")
+            lines.append(f"Platform: {platform_name}")
+            lines.append(f"{n_polls} polls, {n_obs} rows, {first_ts} → {last_ts}")
             lines.append("")
             lines.append("| request_ts | time_to_station_s | expected_arrival |")
             lines.append("|---|---:|---|")
