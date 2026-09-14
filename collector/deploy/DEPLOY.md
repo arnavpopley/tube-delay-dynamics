@@ -1,74 +1,115 @@
-# Deploying the collector
+# Deploying the collector 24/7
 
-Every day this isn't running is a day of data that cannot be recovered.
-Pick one host that stays on (Pi, VPS, spare machine) and leave it there.
+This Cursor / cloud-agent VM **sleeps between sessions**. It cannot be the
+always-on host. Hours it is asleep are unrecoverable holes with no failure
+records — the process was not running to log them.
 
-The collector is stdlib-only. Ingest (`src/ingest.py`) is a separate,
-occasional job and does not need to run on the always-on box.
+Pick a machine that stays powered and networked. The collector is
+stdlib-only; ingest (`src/ingest.py`) can stay on a laptop.
 
-## Before start
+**Disk:** a busy weekday hour is ~250–280MB of arrival JSONL (~4–6GB/day).
+Give the host 40GB+ or pull `data/raw/` off it daily. Never let the disk
+fill — writes would stop and look like a quiet network.
 
-1. Clone this repo to `/opt/tube-delay-dynamics` (or equivalent).
-2. Copy `.env.example` to `.env` and set `TFL_APP_KEY` from
-   [the TfL API portal](https://api-portal.tfl.gov.uk/). Unauthenticated
-   requests currently succeed at a lower allowance; do not rely on that
-   for months of collection.
-3. Create the data directory on a disk that survives redeploys:
+**Secrets:** `TFL_APP_KEY` lives in `.env` or the platform secret store.
+Do not commit it. Do not paste it into `fly.toml`.
 
-   ```bash
-   sudo mkdir -p /opt/tube-delay-dynamics/data
-   sudo chown -R tfl:tfl /opt/tube-delay-dynamics
-   ```
+---
 
-4. Optional venv (matches the systemd `ExecStart` path):
+## Option A — small VPS (recommended)
 
-   ```bash
-   python3 -m venv /opt/tube-delay-dynamics/.venv
-   ```
-
-   The collector does not install `requirements.txt`. That file is for
-   ingest and tests on a machine that will compact the JSONL.
-
-## systemd (preferred on a Pi / VPS)
-
-The unit sets `Restart=always`. That is not optional.
+A London/EU droplet you SSH into. You control the disk. Hetzner CX22,
+DigitalOcean (`lon1`), or any £4–6/mo box is enough.
 
 ```bash
+# on the VPS
+sudo git clone <this-repo> /opt/tube-delay-dynamics
+cd /opt/tube-delay-dynamics
+sudo cp .env.example .env
+sudo nano .env          # set TFL_APP_KEY
+sudo mkdir -p data
+```
+
+Then either Docker:
+
+```bash
+cd /opt/tube-delay-dynamics/collector/deploy
+sudo docker compose up -d --build
+sudo docker compose logs -f
+```
+
+or systemd (`Restart=always` is not optional):
+
+```bash
+sudo python3 -m venv /opt/tube-delay-dynamics/.venv
 sudo cp /opt/tube-delay-dynamics/collector/deploy/tfl-collector.service \
         /etc/systemd/system/
-# Edit User=, WorkingDirectory=, ExecStart= if your paths differ.
+# Edit User=, paths, ExecStart= if they differ.
 sudo systemctl daemon-reload
 sudo systemctl enable --now tfl-collector.service
 journalctl -u tfl-collector.service -f
 ```
 
-Health: the process logs `HEALTH CHECK FAILED` at CRITICAL if no
-successful poll lands in 10 minutes. To turn that into a systemd-visible
-failure as well:
+Pull data onto the machine you analyse on (does not delete remote raw):
 
 ```bash
-sudo cp /opt/tube-delay-dynamics/collector/deploy/tfl-collector-health.service \
-        /etc/systemd/system/
-sudo cp /opt/tube-delay-dynamics/collector/deploy/tfl-collector-health.timer \
-        /etc/systemd/system/
+collector/deploy/pull-raw.sh vps user@vps:/opt/tube-delay-dynamics/data/raw/
+python src/ingest.py all
+```
+
+---
+
+## Option B — Fly.io (git-push, still needs a volume)
+
+Requires a Fly account (`fly auth login`). Region `lhr` (London) keeps
+RTT to `api.tfl.gov.uk` short. **Do not** add an HTTP service — Fly
+auto-stops Machines that have a proxy and no traffic.
+
+```bash
+# from the repo root, once
+fly apps create tube-delay-collector
+fly volumes create tfl_raw --region lhr --size 40
+fly secrets set TFL_APP_KEY=<your-key>
+fly deploy
+fly machines list
+fly machine update <machine-id> --restart always
+fly logs
+```
+
+Confirm it is not sleeping: `fly status` should show the Machine **started**
+overnight, not stopped.
+
+Pull:
+
+```bash
+collector/deploy/pull-raw.sh fly tube-delay-collector
+python src/ingest.py all
+```
+
+---
+
+## What not to use
+
+- This Cursor agent VM (sleeps; already lost 7h and 4h on 14 Sep).
+- Render / Railway / Fly **free HTTP** apps that scale to zero.
+- GitHub Actions cron (not 24/7, not point-in-time at 30s).
+- Any disk that is wiped on deploy. Raw JSONL must be a **volume** or a
+  **host bind mount**.
+
+---
+
+## systemd extras (Pi / VPS)
+
+Health: the process logs `HEALTH CHECK FAILED` at CRITICAL if no
+successful poll lands in 10 minutes. Optional timer:
+
+```bash
+sudo cp collector/deploy/tfl-collector-health.service /etc/systemd/system/
+sudo cp collector/deploy/tfl-collector-health.timer /etc/systemd/system/
 sudo systemctl enable --now tfl-collector-health.timer
 ```
 
-## Docker
-
-```bash
-cd /opt/tube-delay-dynamics/collector/deploy
-docker compose up -d --build
-docker compose logs -f
-```
-
-`restart: always` is set in `docker-compose.yml`. The `data/` directory
-is bind-mounted from the host so `docker compose down` cannot delete raw
-JSONL.
-
-## Verify (20 minutes)
-
-After 20 minutes:
+## Verify (20 minutes on the always-on host)
 
 ```bash
 ls data/raw/arrivals/
@@ -78,16 +119,13 @@ python src/ingest.py quality --raw data/raw
 
 Expect:
 
-- `data/raw/arrivals/YYYY-MM-DD/arrivals_HH00.jsonl` growing
-- roughly 1.5k–4k prediction rows per poll network-wide (the brief's
-  400–700 figure is a sanity *floor*; unique vehicles are typically a
-  few hundred)
-- `data/raw/failures/` empty or sparse; any outage must show up there,
-  never as a silent hole
+- `data/raw/arrivals/YYYY-MM-DD/arrivals_HH00.jsonl` growing every hour
+- weekday daytime polls ~1.5k–4k prediction rows
+- `data/raw/failures/` empty or sparse; a timestamp hole with **no**
+  failure records means the host was down
 - heartbeat `healthy: true`
 
-If you change `POLL_INTERVAL_SECONDS`, commit that change. Later
-analysis of gaps needs to know when the cadence changed.
+If you change `POLL_INTERVAL_SECONDS`, commit that change.
 
 ## What this host must never do
 

@@ -1,0 +1,30 @@
+# Always-on TfL collector on Fly.io.
+#
+# No HTTP service on purpose. Fly only auto-stops Machines that have a
+# proxy service; a volume-backed worker stays up. After first deploy:
+#   fly machine update <id> --restart always
+#
+# App name is a placeholder — `fly launch` / `fly apps create` will set it.
+
+app = "tube-delay-collector"
+primary_region = "lhr"
+
+[build]
+  dockerfile = "collector/deploy/Dockerfile"
+
+[env]
+  DATA_DIR = "/app/data"
+  PYTHONUNBUFFERED = "1"
+  POLL_INTERVAL_SECONDS = "30"
+  HEALTH_STALE_SECONDS = "600"
+  LOG_LEVEL = "INFO"
+
+# Persistent disk. A busy weekday hour is ~250–280MB of arrival JSONL.
+# Size this so a missed `rsync` does not fill the volume and stop writes.
+[mounts]
+  source = "tfl_raw"
+  destination = "/app/data"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

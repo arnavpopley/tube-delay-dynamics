@@ -17,5 +17,8 @@ ENV PYTHONUNBUFFERED=1 \
 
 VOLUME ["/app/data"]
 
-# Restart policy belongs in compose/systemd, not the image.
+HEALTHCHECK --interval=120s --timeout=10s --start-period=60s --retries=3 \
+  CMD python /app/collector/healthcheck.py
+
+# Restart policy belongs in compose/systemd/Fly, not the image.
 CMD ["python", "/app/collector/tfl_collector.py"]

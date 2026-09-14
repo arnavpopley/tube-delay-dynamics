@@ -12,3 +12,9 @@ services:
     volumes:
       # Bind the host data directory so a container rebuild cannot wipe raw logs.
       - ../../data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "/app/collector/healthcheck.py"]
+      interval: 120s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
