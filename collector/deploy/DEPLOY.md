@@ -16,7 +16,68 @@ Do not commit it. Do not paste it into `fly.toml`.
 
 ---
 
-## Option A — small VPS (recommended)
+## Website (GitHub Pages / Vercel) ≠ collector
+
+A live website is included in `web/`. It can sit on **GitHub Pages** (free)
+or **Vercel Hobby** (free). It shows the project and TfL's *current* line
+status in the browser.
+
+It does **not** collect the research dataset. Those hosts are serverless /
+static: they sleep, they have no append-only disk, and Vercel Hobby cron is
+once per day. Putting the poller there would look like a website and produce
+unusable data.
+
+This agent is not logged into GitHub. On your laptop:
+
+```bash
+gh auth login
+scripts/publish-github.sh tube-delay-dynamics
+```
+
+Then:
+
+- **GitHub Pages (free):** repo Settings → Pages → Source: GitHub Actions.
+  The workflow in `.github/workflows/pages.yml` builds `web/`.
+- **Vercel (free static site):** Import the GitHub repo. Root directory
+  stays the repo root (`vercel.json` builds `web/`). Do not add a serverless
+  function that polls TfL.
+
+---
+
+## Option A — Oracle Cloud Always Free (only real free 24/7)
+
+This is the free option that can actually stay up. Always Free ARM
+(`VM.Standard.A1.Flex`, home region) or the AMD micro. Idle Always Free
+instances can be reclaimed — keep the collector running so the box is not
+idle for 7 days.
+
+1. Sign up at [oracle.com/cloud/free](https://www.oracle.com/cloud/free/).
+2. Create a VM in your **home region** (capacity is tight; retry ADs).
+3. Open ingress for SSH (22). You do not need a public HTTP port.
+4. On the VM:
+
+```bash
+sudo apt-get update && sudo apt-get install -y git python3
+git clone https://github.com/<you>/tube-delay-dynamics.git /opt/tube-delay-dynamics
+cd /opt/tube-delay-dynamics
+cp .env.example .env
+nano .env   # TFL_APP_KEY
+mkdir -p data
+sudo cp collector/deploy/tfl-collector.service /etc/systemd/system/
+# set User=ubuntu (or opc), WorkingDirectory, ExecStart=python3 ...
+sudo systemctl daemon-reload
+sudo systemctl enable --now tfl-collector.service
+```
+
+Boot volumes are tens of GB — enough for weeks of JSONL if you pull
+`data/raw/` down periodically.
+
+Koyeb / Render / Railway **free** tiers sleep. They are the same class of
+failure as this Cursor VM.
+
+---
+
+## Option B — small VPS (paid, ~£4–6/mo, simplest disk)
 
 A London/EU droplet you SSH into. You control the disk. Hetzner CX22,
 DigitalOcean (`lon1`), or any £4–6/mo box is enough.
@@ -59,7 +120,7 @@ python src/ingest.py all
 
 ---
 
-## Option B — Fly.io (git-push, still needs a volume)
+## Option C — Fly.io (not free; git-push with a volume)
 
 Requires a Fly account (`fly auth login`). Region `lhr` (London) keeps
 RTT to `api.tfl.gov.uk` short. **Do not** add an HTTP service — Fly
@@ -91,7 +152,8 @@ python src/ingest.py all
 ## What not to use
 
 - This Cursor agent VM (sleeps; already lost 7h and 4h on 14 Sep).
-- Render / Railway / Fly **free HTTP** apps that scale to zero.
+- Vercel / GitHub Pages (static website only; no 30s poller, no durable JSONL).
+- Render / Railway / Koyeb **free** instances that scale to zero.
 - GitHub Actions cron (not 24/7, not point-in-time at 30s).
 - Any disk that is wiped on deploy. Raw JSONL must be a **volume** or a
   **host bind mount**.

@@ -55,9 +55,17 @@ Writes:
 - `data/raw/failures/YYYY-MM-DD/failures_HH00.jsonl`
 - `data/raw/heartbeat.json`
 
-Always-on deploy: **this agent VM sleeps and will keep punching holes in
-the dataset.** Put the collector on a VPS or Fly.io with a persistent
-volume — [`collector/deploy/DEPLOY.md`](collector/deploy/DEPLOY.md).
+Always-on **collection** cannot run on Vercel or GitHub Pages. Those are
+the public site (`web/`). The poller needs a machine that stays on —
+Oracle Always Free or a VPS. See
+[`collector/deploy/DEPLOY.md`](collector/deploy/DEPLOY.md).
+
+Publish to GitHub from your laptop (this agent has no GitHub login):
+
+```bash
+gh auth login
+scripts/publish-github.sh
+```
 
 A weekday poll is typically **1.5k–4k prediction rows**, not 400–700. Unique
 vehicles are a few hundred. The quality report prints both.

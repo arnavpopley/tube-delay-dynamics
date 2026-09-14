@@ -28,5 +28,9 @@ results/*
 .idea/
 .vscode/
 
+# Website build
+web/node_modules/
+web/dist/
+
 # Cloud-agent drop folder, not part of the research repo
 uploads/
