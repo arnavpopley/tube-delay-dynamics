@@ -61,3 +61,18 @@ def test_append_jsonl_never_truncates(tmp_path: Path) -> None:
     assert len(lines) == 2
     assert '"n":1' in lines[0]
     assert '"n":2' in lines[1]
+
+
+def test_seal_gzips_completed_hour_only(tmp_path: Path) -> None:
+    now = datetime(2026, 9, 15, 13, 5, tzinfo=timezone.utc)
+    old = tmp_path / "arrivals" / "2026-09-15" / "arrivals_1200.jsonl"
+    current = tmp_path / "arrivals" / "2026-09-15" / "arrivals_1300.jsonl"
+    old.parent.mkdir(parents=True)
+    old.write_text('{"poll_id":"a"}\n', encoding="utf-8")
+    current.write_text('{"poll_id":"b"}\n', encoding="utf-8")
+    sealed = collector.seal_completed_hours(now, base=tmp_path)
+    assert sealed == 1
+    assert not old.exists()
+    gz = old.with_name(old.name + ".gz")
+    assert gz.is_file() and gz.stat().st_size > 0
+    assert current.exists()

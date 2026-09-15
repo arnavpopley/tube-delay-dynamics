@@ -17,9 +17,11 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import gzip
 import json
 import logging
 import os
+import shutil
 import signal
 import sys
 import time
@@ -163,6 +165,46 @@ def hourly_jsonl(kind: str, when: datetime) -> Path:
     day = when.strftime("%Y-%m-%d")
     hour = when.strftime("%H00")
     return raw_dir() / kind / day / f"{kind}_{hour}.jsonl"
+
+
+def seal_completed_hours(now: datetime, base: Path | None = None) -> int:
+    """Gzip hourly JSONL that is no longer being appended.
+
+    The current UTC hour's file stays uncompressed so append + fsync
+    keep working. Completed hours are replaced with `.jsonl.gz` (same
+    bytes, ~20× smaller on this feed). The uncompressed file is removed
+    only after the gzip exists and is non-empty.
+    """
+    root = base if base is not None else raw_dir()
+    current_day = now.strftime("%Y-%m-%d")
+    current_hour = now.strftime("%H00")
+    sealed = 0
+    for kind in ("arrivals", "status", "failures"):
+        kind_root = root / kind
+        if not kind_root.is_dir():
+            continue
+        for path in sorted(kind_root.glob("*/*.jsonl")):
+            if path.parent.name == current_day and path.name == f"{kind}_{current_hour}.jsonl":
+                continue
+            gz = path.with_name(path.name + ".gz")
+            if gz.exists() and gz.stat().st_size > 0:
+                path.unlink(missing_ok=True)
+                sealed += 1
+                continue
+            tmp = gz.with_name(gz.name + ".partial")
+            try:
+                with path.open("rb") as src, gzip.open(tmp, "wb", compresslevel=6) as dst:
+                    shutil.copyfileobj(src, dst, length=1024 * 1024)
+                tmp.replace(gz)
+            except Exception:
+                log.exception("gzip failed for %s; leaving uncompressed", path)
+                tmp.unlink(missing_ok=True)
+                continue
+            if gz.stat().st_size > 0:
+                path.unlink()
+                sealed += 1
+                log.info("sealed %s (%s bytes gzip)", gz, gz.stat().st_size)
+    return sealed
 
 
 def api_url(path: str, app_key: str) -> str:
@@ -465,6 +507,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="TfL Underground point-in-time collector")
     parser.add_argument("--once", action="store_true", help="run a single poll cycle and exit")
     parser.add_argument(
+        "--seal-only",
+        action="store_true",
+        help="gzip completed hourly JSONL and exit (does not poll)",
+    )
+    parser.add_argument(
         "--interval",
         type=int,
         default=None,
@@ -479,6 +526,10 @@ def main(argv: list[str] | None = None) -> int:
     configure_logging(os.environ.get("LOG_LEVEL", "INFO"))
 
     app_key = os.environ.get("TFL_APP_KEY", "").strip()
+    if args.seal_only:
+        n = seal_completed_hours(utc_now())
+        log.info("sealed %s completed hourly files", n)
+        return 0
     if not app_key:
         log.warning(
             "TFL_APP_KEY is empty. Unauthenticated requests may be rate-limited "
@@ -541,6 +592,10 @@ def main(argv: list[str] | None = None) -> int:
             stale_seconds=stale_seconds,
         )
         log_health(last_success_ts, stale_seconds)
+        try:
+            seal_completed_hours(utc_now())
+        except Exception:
+            log.exception("hourly gzip seal failed; will retry next cycle")
 
         if args.once:
             return 0 if ok else 1

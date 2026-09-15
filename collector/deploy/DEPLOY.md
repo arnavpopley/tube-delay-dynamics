@@ -7,9 +7,14 @@ records — the process was not running to log them.
 Pick a machine that stays powered and networked. The collector is
 stdlib-only; ingest (`src/ingest.py`) can stay on a laptop.
 
-**Disk:** a busy weekday hour is ~250–280MB of arrival JSONL (~4–6GB/day).
-Give the host 40GB+ or pull `data/raw/` off it daily. Never let the disk
-fill — writes would stop and look like a quiet network.
+**Disk:** uncompressed, a busy weekday hour is ~250–340MB of arrival JSONL
+(~4–6GB/day). A 50GB boot volume would fill in about a week. The collector
+gzips each *completed* UTC hour in place (~20× on this feed, so ~15MB/busy
+hour, on the order of 300–400MB/day). The current hour stays uncompressed
+so we can still append. `src/ingest.py` reads both `.jsonl` and `.jsonl.gz`.
+Still pull `data/raw/` off the box periodically; a full disk looks like a
+quiet network. Oracle Always Free allows more than 50GB of block storage
+if you want to enlarge the boot volume later.
 
 **Secrets:** `TFL_APP_KEY` lives in `.env` or the platform secret store.
 Do not commit it. Do not paste it into `fly.toml`.

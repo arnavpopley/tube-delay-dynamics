@@ -5,6 +5,7 @@ These tests do not hit TfL and do not infer arrival times.
 
 from __future__ import annotations
 
+import gzip
 import json
 import sys
 from datetime import datetime, timedelta, timezone
@@ -157,6 +158,16 @@ def test_compact_partitions_by_date_and_line(raw_tree: Path, tmp_path: Path) -> 
     assert raw_arrivals.is_file()
     lines = raw_arrivals.read_text(encoding="utf-8").splitlines()
     assert len(lines) == 24
+
+
+def test_compact_reads_gzipped_hourly_files(raw_tree: Path, tmp_path: Path) -> None:
+    src = raw_tree / "arrivals" / "2026-09-13" / "arrivals_1000.jsonl"
+    gz = src.with_name(src.name + ".gz")
+    with src.open("rb") as f_in, gzip.open(gz, "wb") as f_out:
+        f_out.write(f_in.read())
+    src.unlink()
+    counts = ingest.compact(raw_tree, tmp_path / "processed")
+    assert counts["arrivals"] == 24
 
 
 def test_compact_refuses_processed_inside_raw(raw_tree: Path) -> None:

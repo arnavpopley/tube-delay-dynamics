@@ -53,6 +53,23 @@ def glob_or_none(directory: Path, pattern: str) -> str | None:
     return str(directory / pattern)
 
 
+def jsonl_read_sql(raw_dir: Path, kind: str) -> str | None:
+    """DuckDB scan of uncompressed and gzipped hourly JSONL."""
+    parts: list[str] = []
+    for pattern in (f"{kind}/*/*.jsonl", f"{kind}/*/*.jsonl.gz"):
+        if glob_or_none(raw_dir, pattern):
+            parts.append(
+                f"read_json_auto({sql_lit(str(raw_dir / pattern))}, "
+                "format := 'newline_delimited', ignore_errors := false)"
+            )
+    if not parts:
+        return None
+    if len(parts) == 1:
+        return parts[0]
+    selects = " UNION ALL BY NAME ".join(f"SELECT * FROM {part}" for part in parts)
+    return f"({selects})"
+
+
 def sql_lit(value: str) -> str:
     """Quote a filesystem path for interpolation into DuckDB SQL.
 
@@ -71,14 +88,14 @@ def compact(raw_dir: Path, processed_dir: Path) -> dict[str, int]:
     if processed_dir.is_relative_to(raw_dir):
         raise ValueError("processed_dir must not sit inside raw_dir")
 
-    arrivals_glob = glob_or_none(raw_dir, "arrivals/*/*.jsonl")
-    status_glob = glob_or_none(raw_dir, "status/*/*.jsonl")
-    failures_glob = glob_or_none(raw_dir, "failures/*/*.jsonl")
+    arrivals_sql = jsonl_read_sql(raw_dir, "arrivals")
+    status_sql = jsonl_read_sql(raw_dir, "status")
+    failures_sql = jsonl_read_sql(raw_dir, "failures")
 
     con = connect()
     counts = {"arrivals": 0, "status": 0, "failures": 0}
 
-    if arrivals_glob:
+    if arrivals_sql:
         arrivals_out = processed_dir / "arrivals"
         arrivals_out.mkdir(parents=True, exist_ok=True)
         con.execute(
@@ -108,7 +125,7 @@ def compact(raw_dir: Path, processed_dir: Path) -> dict[str, int]:
                 timingRead::TIMESTAMPTZ AS timing_read,
                 timingSent::TIMESTAMPTZ AS timing_sent,
                 CAST(request_ts AS DATE) AS poll_date
-            FROM read_json_auto({sql_lit(arrivals_glob)}, format := 'newline_delimited', ignore_errors := false)
+            FROM {arrivals_sql}
             """
         )
         counts["arrivals"] = con.execute("SELECT COUNT(*) FROM arrivals_src").fetchone()[0]
@@ -126,7 +143,7 @@ def compact(raw_dir: Path, processed_dir: Path) -> dict[str, int]:
             """
         )
 
-    if status_glob:
+    if status_sql:
         status_out = processed_dir / "status"
         status_out.mkdir(parents=True, exist_ok=True)
         con.execute(
@@ -143,7 +160,7 @@ def compact(raw_dir: Path, processed_dir: Path) -> dict[str, int]:
                 reason,
                 created,
                 CAST(request_ts AS DATE) AS poll_date
-            FROM read_json_auto({sql_lit(status_glob)}, format := 'newline_delimited', ignore_errors := false)
+            FROM {status_sql}
             """
         )
         counts["status"] = con.execute("SELECT COUNT(*) FROM status_src").fetchone()[0]
@@ -160,7 +177,7 @@ def compact(raw_dir: Path, processed_dir: Path) -> dict[str, int]:
             """
         )
 
-    if failures_glob:
+    if failures_sql:
         failures_out = processed_dir / "failures"
         failures_out.mkdir(parents=True, exist_ok=True)
         con.execute(
@@ -175,7 +192,7 @@ def compact(raw_dir: Path, processed_dir: Path) -> dict[str, int]:
                 error_message,
                 http_status,
                 CAST(request_ts AS DATE) AS poll_date
-            FROM read_json_auto({sql_lit(failures_glob)}, format := 'newline_delimited', ignore_errors := false)
+            FROM {failures_sql}
             """
         )
         counts["failures"] = con.execute("SELECT COUNT(*) FROM failures_src").fetchone()[0]
@@ -202,8 +219,8 @@ def _arrivals_relation_sql(processed_dir: Path, raw_dir: Path) -> str:
     parquet = processed_dir / "arrivals"
     if any(parquet.rglob("*.parquet")):
         return f"read_parquet({sql_lit(str(parquet / '**/*.parquet'))}, hive_partitioning := true)"
-    arrivals_glob = glob_or_none(raw_dir, "arrivals/*/*.jsonl")
-    if arrivals_glob is None:
+    arrivals_sql = jsonl_read_sql(raw_dir, "arrivals")
+    if arrivals_sql is None:
         raise FileNotFoundError(f"no arrivals data under {raw_dir} or {processed_dir}")
     return f"""(
             SELECT
@@ -218,7 +235,7 @@ def _arrivals_relation_sql(processed_dir: Path, raw_dir: Path) -> str:
                 expectedArrival::TIMESTAMPTZ AS expected_arrival,
                 "timestamp"::TIMESTAMPTZ AS tfl_timestamp,
                 CAST(request_ts AS DATE) AS poll_date
-            FROM read_json_auto({sql_lit(arrivals_glob)}, format := 'newline_delimited')
+            FROM {arrivals_sql}
         )"""
 
 
@@ -226,8 +243,8 @@ def _failures_relation_sql(processed_dir: Path, raw_dir: Path) -> str | None:
     parquet = processed_dir / "failures"
     if any(parquet.rglob("*.parquet")):
         return f"read_parquet({sql_lit(str(parquet / '**/*.parquet'))}, hive_partitioning := true)"
-    failures_glob = glob_or_none(raw_dir, "failures/*/*.jsonl")
-    if failures_glob is None:
+    failures_sql = jsonl_read_sql(raw_dir, "failures")
+    if failures_sql is None:
         return None
     return f"""(
             SELECT
@@ -236,7 +253,7 @@ def _failures_relation_sql(processed_dir: Path, raw_dir: Path) -> str | None:
                 endpoint,
                 error_message,
                 CAST(request_ts AS DATE) AS poll_date
-            FROM read_json_auto({sql_lit(failures_glob)}, format := 'newline_delimited')
+            FROM {failures_sql}
         )"""
 
 
