@@ -54,19 +54,17 @@ idle for 7 days.
 1. Sign up at [oracle.com/cloud/free](https://www.oracle.com/cloud/free/).
 2. Create a VM in your **home region** (capacity is tight; retry ADs).
 3. Open ingress for SSH (22). You do not need a public HTTP port.
-4. On the VM:
+4. On the VM (Ubuntu image; user is often `ubuntu`):
 
 ```bash
 sudo apt-get update && sudo apt-get install -y git python3
-git clone https://github.com/<you>/tube-delay-dynamics.git /opt/tube-delay-dynamics
+sudo git clone https://github.com/<you>/tube-delay-dynamics.git /opt/tube-delay-dynamics
+sudo chown -R "$USER:$USER" /opt/tube-delay-dynamics
 cd /opt/tube-delay-dynamics
 cp .env.example .env
-nano .env   # TFL_APP_KEY
-mkdir -p data
-sudo cp collector/deploy/tfl-collector.service /etc/systemd/system/
-# set User=ubuntu (or opc), WorkingDirectory, ExecStart=python3 ...
-sudo systemctl daemon-reload
-sudo systemctl enable --now tfl-collector.service
+nano .env   # TFL_APP_KEY=<primary key>
+sudo collector/deploy/install-systemd.sh
+journalctl -u tfl-collector.service -f
 ```
 
 Boot volumes are tens of GB — enough for weeks of JSONL if you pull
@@ -102,12 +100,8 @@ sudo docker compose logs -f
 or systemd (`Restart=always` is not optional):
 
 ```bash
-sudo python3 -m venv /opt/tube-delay-dynamics/.venv
-sudo cp /opt/tube-delay-dynamics/collector/deploy/tfl-collector.service \
-        /etc/systemd/system/
-# Edit User=, paths, ExecStart= if they differ.
-sudo systemctl daemon-reload
-sudo systemctl enable --now tfl-collector.service
+sudo python3 -m venv /opt/tube-delay-dynamics/.venv   # optional; installer uses system python3
+sudo collector/deploy/install-systemd.sh
 journalctl -u tfl-collector.service -f
 ```
 
