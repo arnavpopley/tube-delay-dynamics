@@ -31,8 +31,9 @@ User=tfl
 Group=tfl
 WorkingDirectory=/opt/tube-delay-dynamics
 EnvironmentFile=-/opt/tube-delay-dynamics/.env
-# stdlib-only; system python is enough if you don't want a venv
-ExecStart=/opt/tube-delay-dynamics/.venv/bin/python /opt/tube-delay-dynamics/collector/tfl_collector.py
+# stdlib-only; system python is enough. The install script rewrites
+# User=, WorkingDirectory=, and ExecStart= for the machine it runs on.
+ExecStart=/usr/bin/python3 /opt/tube-delay-dynamics/collector/tfl_collector.py
 Restart=always
 RestartSec=5
 # Give hung polls time to die before SIGKILL

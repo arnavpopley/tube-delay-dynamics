@@ -8,5 +8,5 @@ User=tfl
 Group=tfl
 WorkingDirectory=/opt/tube-delay-dynamics
 EnvironmentFile=-/opt/tube-delay-dynamics/.env
-ExecStart=/opt/tube-delay-dynamics/.venv/bin/python /opt/tube-delay-dynamics/collector/healthcheck.py
+ExecStart=/usr/bin/python3 /opt/tube-delay-dynamics/collector/healthcheck.py
 # OnFailure can page you; by default the CRITICAL line in the journal is the alert.
