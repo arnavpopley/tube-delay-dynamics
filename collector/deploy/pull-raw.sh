@@ -11,7 +11,8 @@ usage() {
   cat <<'EOF'
 Pull data/raw from the 24/7 collector host. Remote files are not deleted.
 
-  collector/deploy/pull-raw.sh vps  user@host:/opt/tube-delay-dynamics/data/raw/
+  collector/deploy/pull-raw.sh vps user@host:/opt/tube-delay-dynamics/data/raw/ [ssh-key]
+  SSH_IDENTITY=~/.ssh/tfl-collector.key collector/deploy/pull-raw.sh vps user@host:/opt/tube-delay-dynamics/data/raw/
   collector/deploy/pull-raw.sh fly  [app-name]
 
 Then: python src/ingest.py all
@@ -26,7 +27,13 @@ case "${cmd}" in
       usage
       exit 2
     fi
-    rsync -avz --progress "${src%/}/" "${DEST}/"
+    identity="${3:-${SSH_IDENTITY:-}}"
+    if [[ -n "${identity}" ]]; then
+      rsync -avz --progress -e "ssh -i ${identity} -o IdentitiesOnly=yes" \
+        "${src%/}/" "${DEST}/"
+    else
+      rsync -avz --progress "${src%/}/" "${DEST}/"
+    fi
     ;;
   fly)
     app="${2:-tube-delay-collector}"
