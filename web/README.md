@@ -2,8 +2,8 @@
 
 Static React page: project brief + live TfL line status (browser fetch).
 
-This is **not** the 30-second research collector. Deploy it to GitHub Pages
-or Vercel. Run `collector/tfl_collector.py` on an always-on VM.
+This is **not** the 30-second research collector. The public deploy is Vercel.
+Run `collector/tfl_collector.py` on an always-on VM.
 
 ```bash
 npm ci

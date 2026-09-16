@@ -39,13 +39,8 @@ gh auth login
 scripts/publish-github.sh tube-delay-dynamics
 ```
 
-Then:
-
-- **GitHub Pages (free):** repo Settings → Pages → Source: GitHub Actions.
-  The workflow in `.github/workflows/pages.yml` builds `web/`.
-- **Vercel (free static site):** Import the GitHub repo. Root directory
-  stays the repo root (`vercel.json` builds `web/`). Do not add a serverless
-  function that polls TfL.
+Then Vercel (already imported) rebuilds `web/` from `main`. Do not add a
+serverless function that polls TfL.
 
 ---
 
