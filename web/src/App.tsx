@@ -27,10 +27,7 @@ const LINE_COLOURS: Record<string, string> = {
   piccadilly: '#003688',
   victoria: '#0098D4',
   'waterloo-city': '#95CDBA',
-  elizabeth: '#7156A5',
 }
-
-const LINE_ORDER = [...UNDERGROUND_IDS, 'elizabeth']
 
 type LineStatus = {
   id: string
@@ -82,11 +79,10 @@ function ageLabel(seconds: number | null | undefined): string {
 }
 
 function orderLines(data: LineStatus[]): LineStatus[] {
-  return [...data].sort((a, b) => {
-    const ia = LINE_ORDER.indexOf(a.id)
-    const ib = LINE_ORDER.indexOf(b.id)
-    return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib)
-  })
+  const order: readonly string[] = UNDERGROUND_IDS
+  return [...data]
+    .filter((line) => order.includes(line.id))
+    .sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id))
 }
 
 export default function App() {
@@ -97,7 +93,7 @@ export default function App() {
 
   useEffect(() => {
     const ac = new AbortController()
-    fetch('https://api.tfl.gov.uk/Line/Mode/tube,elizabeth-line/Status', {
+    fetch('https://api.tfl.gov.uk/Line/Mode/tube/Status', {
       signal: ac.signal,
     })
       .then(async (res) => {
@@ -222,9 +218,7 @@ sudo collector/deploy/install-systemd.sh`}</pre>
         <section>
           <h2>Live TfL board</h2>
           <p className="meta">
-            TfL's public status in your browser. The archive is the eleven
-            Underground lines. Elizabeth line is on this board only: it is not
-            tube mode and is not in the dataset.
+            TfL's public status for the eleven Underground lines in the archive.
           </p>
           {error ? <p className="err">{error}</p> : null}
           {!error && !lines ? <p className="empty">Loading line status...</p> : null}
@@ -235,7 +229,6 @@ sudo collector/deploy/install-systemd.sh`}</pre>
                 {lines.map((line) => {
                   const st = line.lineStatuses[0]
                   const ok = st?.statusSeverity === 10
-                  const archive = line.id !== 'elizabeth'
                   return (
                     <li key={line.id}>
                       <span
@@ -244,11 +237,6 @@ sudo collector/deploy/install-systemd.sh`}</pre>
                       />
                       <div>
                         <div className="status-name">{line.name}</div>
-                        {archive ? null : (
-                          <div className="status-desc">
-                            TfL status only, not in the Underground archive
-                          </div>
-                        )}
                         {st?.reason ? (
                           <div className="status-desc">{st.reason}</div>
                         ) : null}
