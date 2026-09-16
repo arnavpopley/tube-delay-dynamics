@@ -24,9 +24,11 @@ import os
 import shutil
 import signal
 import sys
+import threading
 import time
 import uuid
 from datetime import datetime, timezone
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -137,6 +139,55 @@ def raw_dir() -> Path:
 
 def heartbeat_path() -> Path:
     return raw_dir() / "heartbeat.json"
+
+
+def public_status() -> dict[str, Any]:
+    """Heartbeat only. Never includes prediction rows or the API key."""
+    path = heartbeat_path()
+    if not path.is_file():
+        return {
+            "healthy": False,
+            "error": "no heartbeat yet",
+            "last_success_ts": None,
+            "last_arrival_count": None,
+            "seconds_since_success": None,
+        }
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return {
+        "healthy": bool(payload.get("healthy")),
+        "last_success_ts": payload.get("last_success_ts"),
+        "last_attempt_ts": payload.get("last_attempt_ts"),
+        "last_arrival_count": payload.get("last_arrival_count"),
+        "seconds_since_success": payload.get("seconds_since_success"),
+        "stale_after_seconds": payload.get("stale_after_seconds"),
+        "last_error": payload.get("last_error"),
+        "written_ts": payload.get("written_ts"),
+    }
+
+
+def start_status_http(port: int) -> None:
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            route = self.path.split("?", 1)[0]
+            if route not in {"/", "/status", "/health"}:
+                self.send_error(404)
+                return
+            body = json.dumps(public_status()).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, format: str, *args: Any) -> None:
+            log.debug("status-http " + format, *args)
+
+    server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
+    thread = threading.Thread(target=server.serve_forever, name="status-http", daemon=True)
+    thread.start()
+    log.info("public status HTTP on 0.0.0.0:%s (heartbeat only, no raw data)", port)
 
 
 def atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
@@ -542,6 +593,9 @@ def main(argv: list[str] | None = None) -> int:
     timeout = float(env_int("HTTP_TIMEOUT_SECONDS", DEFAULT_HTTP_TIMEOUT_SECONDS))
 
     raw_dir().mkdir(parents=True, exist_ok=True)
+    status_port = env_int("HEALTH_HTTP_PORT", 0)
+    if status_port > 0:
+        start_status_http(status_port)
     log.info(
         "collector starting: interval=%ss stale_after=%ss lines=%s data=%s",
         interval,

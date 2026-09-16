@@ -10,6 +10,12 @@ export default defineConfig({
   server: {
     host: '127.0.0.1',
     port: 43145,
+    proxy: {
+      '/api/collector-status': {
+        target: 'http://127.0.0.1:8080',
+        rewrite: () => '/status',
+      },
+    },
   },
   preview: {
     host: '127.0.0.1',

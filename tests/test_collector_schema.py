@@ -63,6 +63,30 @@ def test_append_jsonl_never_truncates(tmp_path: Path) -> None:
     assert '"n":2' in lines[1]
 
 
+def test_public_status_is_heartbeat_only(tmp_path: Path, monkeypatch) -> None:
+    import json
+
+    hb = tmp_path / "heartbeat.json"
+    hb.write_text(
+        json.dumps(
+            {
+                "healthy": True,
+                "last_success_ts": "2026-09-15T23:57:56.000Z",
+                "last_arrival_count": 494,
+                "seconds_since_success": 12,
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(collector, "heartbeat_path", lambda: hb)
+    status = collector.public_status()
+    assert status["healthy"] is True
+    assert status["last_arrival_count"] == 494
+    dumped = json.dumps(status)
+    assert "timeToStation" not in dumped
+    assert "TFL_APP_KEY" not in dumped
+
+
 def test_seal_gzips_completed_hour_only(tmp_path: Path) -> None:
     now = datetime(2026, 9, 15, 13, 5, tzinfo=timezone.utc)
     old = tmp_path / "arrivals" / "2026-09-15" / "arrivals_1200.jsonl"

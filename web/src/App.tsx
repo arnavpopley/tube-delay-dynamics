@@ -25,10 +25,41 @@ type LineStatus = {
   }>
 }
 
+type CollectorStatus = {
+  reachable?: boolean
+  healthy?: boolean
+  last_success_ts?: string | null
+  last_arrival_count?: number | null
+  seconds_since_success?: number | null
+  last_error?: string | null
+  error?: string
+}
+
+function londonTime(iso: string | null | undefined): string {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  return d.toLocaleString('en-GB', {
+    timeZone: 'Europe/London',
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  })
+}
+
+function ageLabel(seconds: number | null | undefined): string {
+  if (seconds == null) return '—'
+  if (seconds < 90) return `${Math.round(seconds)}s ago`
+  return `${Math.round(seconds / 60)} min ago`
+}
+
 export default function App() {
   const [lines, setLines] = useState<LineStatus[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [fetchedAt, setFetchedAt] = useState<string | null>(null)
+  const [collector, setCollector] = useState<CollectorStatus | null>(null)
 
   useEffect(() => {
     const ac = new AbortController()
@@ -48,6 +79,37 @@ export default function App() {
     return () => ac.abort()
   }, [])
 
+  useEffect(() => {
+    let cancelled = false
+    const load = () => {
+      fetch('/api/collector-status')
+        .then(async (res) => {
+          if (!res.ok) throw new Error(`status HTTP ${res.status}`)
+          return res.json() as Promise<CollectorStatus>
+        })
+        .then((data) => {
+          if (!cancelled) setCollector(data)
+        })
+        .catch((err: unknown) => {
+          if (!cancelled) {
+            setCollector({
+              reachable: false,
+              healthy: false,
+              error: err instanceof Error ? err.message : 'status unreachable',
+            })
+          }
+        })
+    }
+    load()
+    const id = window.setInterval(load, 15000)
+    return () => {
+      cancelled = true
+      window.clearInterval(id)
+    }
+  }, [])
+
+  const collecting = Boolean(collector?.reachable && collector?.healthy)
+
   return (
     <div className="wrap">
       <header className="hero">
@@ -58,12 +120,40 @@ export default function App() {
           forecast the error in TfL’s own live arrivals — scored by horizon
           against their countdown board.
         </p>
-        <div className="banner">
-          <strong>This page is not the collector.</strong> Vercel and GitHub
-          Pages are static hosts: they sleep, they have no durable disk, and
-          they cannot poll TfL every 30 seconds. The research log has to run on
-          a machine that stays on — Oracle Always Free or a cheap VPS. See
-          <code> collector/deploy/DEPLOY.md</code>.
+
+        <div className={`status-card ${collecting ? 'is-ok' : 'is-down'}`}>
+          <div className="status-top">
+            <span className={`pill ${collecting ? 'ok' : 'down'}`}>
+              {collecting ? 'Collecting' : 'Collector not reaching this page'}
+            </span>
+            <span className="meta">Oracle VM · refreshes every 15s</span>
+          </div>
+          <div className="stats">
+            <div>
+              <div className="stat-label">Last successful poll</div>
+              <div className="stat-value">
+                {londonTime(collector?.last_success_ts)}
+              </div>
+              <div className="meta">{ageLabel(collector?.seconds_since_success)}</div>
+            </div>
+            <div>
+              <div className="stat-label">Predictions that poll</div>
+              <div className="stat-value">
+                {collector?.last_arrival_count ?? '—'}
+              </div>
+              <div className="meta">one row per train–station forecast</div>
+            </div>
+          </div>
+          {collector?.error ? (
+            <p className="err">
+              {collector.error}. Open TCP 8080 on the Oracle security list and
+              restart the collector after <code>git pull</code>.
+            </p>
+          ) : null}
+          <p className="meta">
+            This card is our archive heartbeat, not TfL’s public board below.
+            Raw JSONL never leaves the VM.
+          </p>
         </div>
       </header>
 
@@ -84,19 +174,13 @@ export default function App() {
               unbeatable — not a claim of beating them everywhere.
             </li>
           </ol>
-          <p>
-            Predictions are logged point-in-time with our clock. Raw files are
-            append-only. Failed polls are written as records. None of that can
-            live in a serverless function.
-          </p>
         </section>
 
         <section>
           <h2>Live TfL board</h2>
           <p className="meta">
-            Browser fetch of TfL’s public line status. This is <em>their</em>{' '}
-            feed right now — not our 30-second archive, and not a prediction
-            we stored.
+            TfL’s public line status in your browser. Separate from the 30-second
+            archive on Oracle.
           </p>
           {error ? <p className="err">{error}</p> : null}
           {!error && !lines ? <p className="empty">Loading line status…</p> : null}
@@ -131,23 +215,9 @@ export default function App() {
         </section>
       </div>
 
-      <section style={{ marginTop: '1.25rem' }}>
-        <h2>Where collection actually runs</h2>
-        <p>
-          Free 24/7 option: an Oracle Cloud Always Free ARM VM (home region,
-          ~50GB boot volume). Not Vercel, not this Cursor agent, not GitHub
-          Actions.
-        </p>
-        <pre className="cmd">{`# on the always-on VM
-git clone https://github.com/<you>/tube-delay-dynamics.git
-cd tube-delay-dynamics
-cp .env.example .env   # TFL_APP_KEY=...
-python3 collector/tfl_collector.py`}</pre>
-      </section>
-
       <footer>
-        Standing brief is PROJECT.md. Reconstruction is not started until a
-        full day of uninterrupted data exists.
+        Standing brief is PROJECT.md. Reconstruction waits until a full day of
+        uninterrupted data exists.
       </footer>
     </div>
   )

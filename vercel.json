@@ -3,5 +3,6 @@
   "framework": null,
   "buildCommand": "npm --prefix web ci && npm --prefix web run build",
   "outputDirectory": "web/dist",
-  "installCommand": "npm --prefix web ci"
+  "installCommand": "npm --prefix web ci",
+  "rewrites": [{ "source": "/api/collector-status", "destination": "/api/collector-status" }]
 }

@@ -46,6 +46,7 @@ Group=${RUN_GROUP}
 WorkingDirectory=${ROOT}
 EnvironmentFile=-${ENV_FILE}
 Environment=PYTHONUNBUFFERED=1
+Environment=HEALTH_HTTP_PORT=8080
 ExecStart=${PYTHON} ${ROOT}/collector/tfl_collector.py
 Restart=always
 RestartSec=5

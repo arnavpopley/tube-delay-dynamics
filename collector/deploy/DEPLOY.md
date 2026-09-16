@@ -78,6 +78,20 @@ Boot volumes are tens of GB — enough for weeks of JSONL if you pull
 Koyeb / Render / Railway **free** tiers sleep. They are the same class of
 failure as this Cursor VM.
 
+The public site (Vercel) shows collector health by proxying a tiny JSON
+endpoint on the VM (`HEALTH_HTTP_PORT=8080`, heartbeat only). After
+`install-systemd.sh`, add an ingress rule: TCP **8080** from `0.0.0.0/0`
+(or at least from the internet). Do **not** open the raw data directory.
+If Ubuntu `iptables` drops the port:
+
+```bash
+sudo iptables -I INPUT -p tcp --dport 8080 -j ACCEPT
+```
+
+Then `git pull` and `sudo collector/deploy/install-systemd.sh` so the unit
+listens on 8080. Optional Vercel env `COLLECTOR_STATUS_URL` if the public
+IP changes (default `http://132.145.52.100:8080/status`).
+
 ---
 
 ## Option B — small VPS (paid, ~£4–6/mo, simplest disk)
