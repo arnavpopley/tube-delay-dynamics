@@ -79,18 +79,32 @@ Koyeb / Render / Railway **free** tiers sleep. They are the same class of
 failure as this Cursor VM.
 
 The public site (Vercel) shows collector health by proxying a tiny JSON
-endpoint on the VM (`HEALTH_HTTP_PORT=8080`, heartbeat only). After
-`install-systemd.sh`, add an ingress rule: TCP **8080** from `0.0.0.0/0`
-(or at least from the internet). Do **not** open the raw data directory.
-If Ubuntu `iptables` drops the port:
+endpoint on the VM (`HEALTH_HTTP_PORT=8080`, heartbeat only). Collection
+itself does not need this port — only the website card does.
+
+`install-systemd.sh` now opens TCP 8080 on the **host iptables** (Oracle
+Ubuntu images REJECT everything except SSH). You still have to open it in
+the **VCN**, or Vercel will time out:
+
+1. Compute → Instances → **tfl-collector**
+2. Primary VNIC → subnet
+3. **Security Lists** → default list → **Add Ingress Rules**
+   - Source CIDR `0.0.0.0/0`
+   - TCP destination port **8080**
+4. Back on the VNIC: if a **Network Security Group** is attached, add the
+   same TCP 8080 rule there too. Missing the NSG looks identical to a
+   timeout.
+
+Do **not** open the raw data directory. Optional Vercel env
+`COLLECTOR_STATUS_URL` if the public IP changes (default
+`http://132.145.52.100:8080/status`).
 
 ```bash
-sudo iptables -I INPUT -p tcp --dport 8080 -j ACCEPT
+cd /opt/tube-delay-dynamics
+git pull
+sudo collector/deploy/install-systemd.sh
+curl -sS http://127.0.0.1:8080/status
 ```
-
-Then `git pull` and `sudo collector/deploy/install-systemd.sh` so the unit
-listens on 8080. Optional Vercel env `COLLECTOR_STATUS_URL` if the public
-IP changes (default `http://132.145.52.100:8080/status`).
 
 ---
 

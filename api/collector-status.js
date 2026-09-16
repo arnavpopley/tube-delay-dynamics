@@ -14,11 +14,13 @@ export default async function handler(req, res) {
       ...payload,
     });
   } catch (err) {
+    const message = err instanceof Error ? err.message : "collector unreachable";
     res.status(200).json({
       reachable: false,
       healthy: false,
       source: "oracle",
-      error: err instanceof Error ? err.message : "collector unreachable",
+      error: message,
+      hint: "Timeout means the Oracle VCN or iptables is still dropping TCP 8080. Collection on the VM can still be running.",
     });
   }
 }

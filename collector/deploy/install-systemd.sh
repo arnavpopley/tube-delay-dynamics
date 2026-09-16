@@ -77,9 +77,18 @@ systemctl daemon-reload
 systemctl enable --now tfl-collector.service
 systemctl enable --now tfl-collector-health.timer
 
+# Oracle Ubuntu images REJECT new inbound except SSH. Opening 8080 in the
+# VCN is not enough if this host firewall still drops the packet.
+if [[ -x "${ROOT}/collector/deploy/open-status-port.sh" ]]; then
+  bash "${ROOT}/collector/deploy/open-status-port.sh" || true
+fi
+
 echo
 echo "installed. Watch logs with:"
 echo "  journalctl -u tfl-collector.service -f"
 echo "After a minute:"
 echo "  sudo -u ${RUN_USER} ${PYTHON} ${ROOT}/collector/healthcheck.py"
+echo "  curl -sS http://127.0.0.1:8080/status"
 echo "Raw JSONL lands in ${DATA_DIR}/raw/ — never delete it."
+echo "If the Vercel card stays red, add TCP 8080 from 0.0.0.0/0 on the"
+echo "subnet Security List AND any Network Security Group on the VNIC."

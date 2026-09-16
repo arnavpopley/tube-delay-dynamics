@@ -33,6 +33,7 @@ type CollectorStatus = {
   seconds_since_success?: number | null
   last_error?: string | null
   error?: string
+  hint?: string
 }
 
 function londonTime(iso: string | null | undefined): string {
@@ -146,13 +147,23 @@ export default function App() {
           </div>
           {collector?.error ? (
             <p className="err">
-              {collector.error}. Open TCP 8080 on the Oracle security list and
-              restart the collector after <code>git pull</code>.
+              {collector.error}
+              {collector.hint ? ` ${collector.hint}` : ''}
             </p>
+          ) : null}
+          {!collecting ? (
+            <pre className="cmd">{`cd /opt/tube-delay-dynamics && git pull
+sudo collector/deploy/install-systemd.sh
+curl -sS http://127.0.0.1:8080/status
+
+# Oracle Cloud → tfl-collector → subnet → Security List
+# AND the VNIC Network Security Group (if one is attached):
+# Ingress  TCP  8080  source 0.0.0.0/0`}</pre>
           ) : null}
           <p className="meta">
             This card is our archive heartbeat, not TfL’s public board below.
-            Raw JSONL never leaves the VM.
+            Raw JSONL never leaves the VM. A red card does not mean polling
+            stopped — only that this page cannot see port 8080.
           </p>
         </div>
       </header>
