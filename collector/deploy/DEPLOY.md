@@ -23,9 +23,9 @@ Do not commit it. Do not paste it into `fly.toml`.
 
 ## Website (GitHub Pages / Vercel) ≠ collector
 
-A live website is included in `web/`. It can sit on **GitHub Pages** (free)
-or **Vercel Hobby** (free). It shows the project and TfL's *current* line
-status in the browser.
+A live website is included in `web/`. The public site is **Vercel Hobby**
+(`tube-delay-dynamics.vercel.app`). It shows the project and TfL's *current*
+line status in the browser.
 
 It does **not** collect the research dataset. Those hosts are serverless /
 static: they sleep, they have no append-only disk, and Vercel Hobby cron is
