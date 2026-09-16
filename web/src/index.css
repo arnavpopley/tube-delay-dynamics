@@ -178,7 +178,15 @@ ol.outputs {
 }
 
 ol.outputs li {
-  margin-bottom: 0.6rem;
+  margin-bottom: 0.75rem;
+  line-height: 1.55;
+}
+
+.formula {
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .lines {

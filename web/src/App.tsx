@@ -1,7 +1,21 @@
 import { useEffect, useState } from 'react'
 import './index.css'
 
-const TUBE_COLOURS: Record<string, string> = {
+const UNDERGROUND_IDS = [
+  'bakerloo',
+  'central',
+  'circle',
+  'district',
+  'hammersmith-city',
+  'jubilee',
+  'metropolitan',
+  'northern',
+  'piccadilly',
+  'victoria',
+  'waterloo-city',
+] as const
+
+const LINE_COLOURS: Record<string, string> = {
   bakerloo: '#B36305',
   central: '#E32017',
   circle: '#FFD300',
@@ -13,11 +27,15 @@ const TUBE_COLOURS: Record<string, string> = {
   piccadilly: '#003688',
   victoria: '#0098D4',
   'waterloo-city': '#95CDBA',
+  elizabeth: '#7156A5',
 }
+
+const LINE_ORDER = [...UNDERGROUND_IDS, 'elizabeth']
 
 type LineStatus = {
   id: string
   name: string
+  modeName?: string
   lineStatuses: Array<{
     statusSeverity: number
     statusSeverityDescription: string
@@ -37,7 +55,7 @@ type CollectorStatus = {
 }
 
 function londonTime(iso: string | null | undefined): string {
-  if (!iso) return '—'
+  if (!iso) return '-'
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return iso
   return d.toLocaleString('en-GB', {
@@ -58,9 +76,17 @@ function secondsSince(iso: string | null | undefined): number | null {
 }
 
 function ageLabel(seconds: number | null | undefined): string {
-  if (seconds == null) return '—'
+  if (seconds == null) return '-'
   if (seconds < 90) return `${Math.round(seconds)}s ago`
   return `${Math.round(seconds / 60)} min ago`
+}
+
+function orderLines(data: LineStatus[]): LineStatus[] {
+  return [...data].sort((a, b) => {
+    const ia = LINE_ORDER.indexOf(a.id)
+    const ib = LINE_ORDER.indexOf(b.id)
+    return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib)
+  })
 }
 
 export default function App() {
@@ -71,13 +97,15 @@ export default function App() {
 
   useEffect(() => {
     const ac = new AbortController()
-    fetch('https://api.tfl.gov.uk/Line/Mode/tube/Status', { signal: ac.signal })
+    fetch('https://api.tfl.gov.uk/Line/Mode/tube,elizabeth-line/Status', {
+      signal: ac.signal,
+    })
       .then(async (res) => {
         if (!res.ok) throw new Error(`TfL HTTP ${res.status}`)
         return res.json() as Promise<LineStatus[]>
       })
       .then((data) => {
-        setLines(data)
+        setLines(orderLines(data))
         setFetchedAt(new Date().toISOString())
       })
       .catch((err: unknown) => {
@@ -126,9 +154,9 @@ export default function App() {
         <p className="kicker">London Underground · research dataset</p>
         <h1>Tube Delay Dynamics</h1>
         <p className="lede">
-          Rank the eleven lines by how they absorb and recover from delay, then
-          forecast the error in TfL’s own live arrivals — scored by horizon
-          against their countdown board.
+          Rank the eleven Underground lines by how they absorb and recover from
+          delay, then forecast the error in TfL's own live arrivals, scored by
+          horizon against their countdown board.
         </p>
 
         <div className={`status-card ${collecting ? 'is-ok' : 'is-down'}`}>
@@ -149,9 +177,9 @@ export default function App() {
             <div>
               <div className="stat-label">Predictions that poll</div>
               <div className="stat-value">
-                {collector?.last_arrival_count ?? '—'}
+                {collector?.last_arrival_count ?? '-'}
               </div>
-              <div className="meta">one row per train–station forecast</div>
+              <div className="meta">one row per train-station forecast</div>
             </div>
           </div>
           {collector?.error ? (
@@ -166,7 +194,7 @@ sudo collector/deploy/install-systemd.sh`}</pre>
           ) : null}
           <p className="meta">
             This card is the archive heartbeat published outbound from the VM,
-            not TfL’s public board below. Raw JSONL never leaves the box.
+            not TfL's public board below. Raw JSONL never leaves the box.
           </p>
         </div>
       </header>
@@ -183,9 +211,10 @@ sudo collector/deploy/install-systemd.sh`}</pre>
             </li>
             <li>
               <strong>Forecasting study.</strong> Predict{' '}
-              <code>actual − TfL promised</code> using headways, trains ahead,
-              dwells. The deliverable is the horizon where TfL stops being
-              unbeatable — not a claim of beating them everywhere.
+              <span className="formula">actual - TfL promised</span>, using
+              headways, trains ahead, and dwells. The deliverable is the horizon
+              where TfL stops being unbeatable, not a claim of beating them
+              everywhere.
             </li>
           </ol>
         </section>
@@ -193,11 +222,12 @@ sudo collector/deploy/install-systemd.sh`}</pre>
         <section>
           <h2>Live TfL board</h2>
           <p className="meta">
-            TfL’s public line status in your browser. Separate from the 30-second
-            archive on Oracle.
+            TfL's public status in your browser. The archive is the eleven
+            Underground lines. Elizabeth line is on this board only: it is not
+            tube mode and is not in the dataset.
           </p>
           {error ? <p className="err">{error}</p> : null}
-          {!error && !lines ? <p className="empty">Loading line status…</p> : null}
+          {!error && !lines ? <p className="empty">Loading line status...</p> : null}
           {lines ? (
             <>
               <p className="meta">Fetched {fetchedAt}</p>
@@ -205,14 +235,20 @@ sudo collector/deploy/install-systemd.sh`}</pre>
                 {lines.map((line) => {
                   const st = line.lineStatuses[0]
                   const ok = st?.statusSeverity === 10
+                  const archive = line.id !== 'elizabeth'
                   return (
                     <li key={line.id}>
                       <span
                         className="swatch"
-                        style={{ background: TUBE_COLOURS[line.id] ?? '#888' }}
+                        style={{ background: LINE_COLOURS[line.id] ?? '#888' }}
                       />
                       <div>
                         <div className="status-name">{line.name}</div>
+                        {archive ? null : (
+                          <div className="status-desc">
+                            TfL status only, not in the Underground archive
+                          </div>
+                        )}
                         {st?.reason ? (
                           <div className="status-desc">{st.reason}</div>
                         ) : null}
