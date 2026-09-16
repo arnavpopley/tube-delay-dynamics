@@ -87,6 +87,26 @@ def test_public_status_is_heartbeat_only(tmp_path: Path, monkeypatch) -> None:
     assert "TFL_APP_KEY" not in dumped
 
 
+def test_public_heartbeat_payload_strips_predictions() -> None:
+    import json
+
+    payload = collector.public_heartbeat_payload(
+        {
+            "healthy": True,
+            "last_success_ts": "2026-09-16T00:00:00.000Z",
+            "last_arrival_count": 499,
+            "timeToStation": 12,
+            "TFL_APP_KEY": "secret",
+        }
+    )
+    dumped = json.dumps(payload)
+    assert payload["source"] == "oracle"
+    assert payload["last_arrival_count"] == 499
+    assert "timeToStation" not in dumped
+    assert "TFL_APP_KEY" not in dumped
+    assert collector.publish_public_heartbeat() is False
+
+
 def test_seal_gzips_completed_hour_only(tmp_path: Path) -> None:
     now = datetime(2026, 9, 15, 13, 5, tzinfo=timezone.utc)
     old = tmp_path / "arrivals" / "2026-09-15" / "arrivals_1200.jsonl"

@@ -78,33 +78,23 @@ Boot volumes are tens of GB — enough for weeks of JSONL if you pull
 Koyeb / Render / Railway **free** tiers sleep. They are the same class of
 failure as this Cursor VM.
 
-The public site (Vercel) shows collector health by proxying a tiny JSON
-endpoint on the VM (`HEALTH_HTTP_PORT=8080`, heartbeat only). Collection
-itself does not need this port — only the website card does.
-
-`install-systemd.sh` now opens TCP 8080 on the **host iptables** (Oracle
-Ubuntu images REJECT everything except SSH). You still have to open it in
-the **VCN**, or Vercel will time out:
-
-1. Compute → Instances → **tfl-collector**
-2. Primary VNIC → subnet
-3. **Security Lists** → default list → **Add Ingress Rules**
-   - Source CIDR `0.0.0.0/0`
-   - TCP destination port **8080**
-4. Back on the VNIC: if a **Network Security Group** is attached, add the
-   same TCP 8080 rule there too. Missing the NSG looks identical to a
-   timeout.
-
-Do **not** open the raw data directory. Optional Vercel env
-`COLLECTOR_STATUS_URL` if the public IP changes (default
-`http://132.145.52.100:8080/status`).
+The public site (Vercel) shows collector health from an **outbound**
+heartbeat: after each poll the VM force-pushes `status.json` (heartbeat
+fields only) to
+[tube-delay-dynamics-heartbeat](https://github.com/arnavpopley/tube-delay-dynamics-heartbeat).
+No inbound TCP 8080 is required. Raw JSONL never leaves the VM.
 
 ```bash
 cd /opt/tube-delay-dynamics
 git pull
 sudo collector/deploy/install-systemd.sh
-curl -sS http://127.0.0.1:8080/status
 ```
+
+The Vercel card should flip to Collecting after the next successful poll
+(about 30 seconds). `HEALTH_HTTP_PORT=8080` remains for `curl` on the box.
+
+Do **not** open the raw data directory. Optional Vercel env
+`COLLECTOR_HEARTBEAT_URL` if the heartbeat repo URL changes.
 
 ---
 

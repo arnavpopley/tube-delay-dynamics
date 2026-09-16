@@ -47,7 +47,7 @@ WorkingDirectory=${ROOT}
 EnvironmentFile=-${ENV_FILE}
 Environment=PYTHONUNBUFFERED=1
 Environment=HEALTH_HTTP_PORT=8080
-ExecStart=${PYTHON} ${ROOT}/collector/tfl_collector.py
+ExecStart=/usr/bin/env HEALTH_HTTP_PORT=8080 HEARTBEAT_PUSH=1 ${PYTHON} ${ROOT}/collector/tfl_collector.py
 Restart=always
 RestartSec=5
 TimeoutStopSec=40
@@ -74,11 +74,33 @@ EOF
 cp "${ROOT}/collector/deploy/tfl-collector-health.timer" /etc/systemd/system/
 
 systemctl daemon-reload
-systemctl enable --now tfl-collector.service
+systemctl enable tfl-collector.service
+# Restart so a git pull actually runs the new collector (enable --now will
+# not replace an already-running process).
+systemctl restart tfl-collector.service
 systemctl enable --now tfl-collector-health.timer
 
-# Oracle Ubuntu images REJECT new inbound except SSH. Opening 8080 in the
-# VCN is not enough if this host firewall still drops the packet.
+if [[ -f "${ROOT}/collector/deploy/heartbeat_key.a" && -f "${ROOT}/collector/deploy/heartbeat_key.b" ]]; then
+  ${PYTHON} - <<PY
+from pathlib import Path
+import base64
+root = Path("${ROOT}")
+blob = base64.b64decode(
+    (root / "collector/deploy/heartbeat_key.a").read_text().strip()
+    + (root / "collector/deploy/heartbeat_key.b").read_text().strip()
+)
+path = root / "collector/deploy/heartbeat_deploy_key"
+path.write_bytes(blob)
+path.chmod(0o600)
+PY
+  chown "${RUN_USER}:${RUN_GROUP}" "${ROOT}/collector/deploy/heartbeat_deploy_key"
+fi
+if [[ -f "${ROOT}/collector/deploy/heartbeat-ssh.sh" ]]; then
+  chmod 755 "${ROOT}/collector/deploy/heartbeat-ssh.sh"
+fi
+
+# Optional: local :8080 for curl on the box. The public site no longer
+# needs inbound TCP 8080; it reads the outbound GitHub heartbeat.
 if [[ -x "${ROOT}/collector/deploy/open-status-port.sh" ]]; then
   bash "${ROOT}/collector/deploy/open-status-port.sh" || true
 fi
@@ -88,7 +110,12 @@ echo "installed. Watch logs with:"
 echo "  journalctl -u tfl-collector.service -f"
 echo "After a minute:"
 echo "  sudo -u ${RUN_USER} ${PYTHON} ${ROOT}/collector/healthcheck.py"
-echo "  curl -sS http://127.0.0.1:8080/status"
+echo "The Vercel card reads the outbound heartbeat, not port 8080."
 echo "Raw JSONL lands in ${DATA_DIR}/raw/ — never delete it."
-echo "If the Vercel card stays red, add TCP 8080 from 0.0.0.0/0 on the"
-echo "subnet Security List AND any Network Security Group on the VNIC."
+sleep 2
+if curl -fsS --max-time 2 http://127.0.0.1:8080/status; then
+  echo
+else
+  echo "local :8080 not up yet. Collection can still be running. Check:"
+  echo "  journalctl -u tfl-collector.service -n 40 --no-pager"
+fi

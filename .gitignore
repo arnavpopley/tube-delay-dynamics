@@ -34,3 +34,7 @@ web/dist/
 
 # Cloud-agent drop folder, not part of the research repo
 uploads/
+
+# Working clone used to publish public heartbeat JSON (not research data)
+.heartbeat-git/
+collector/deploy/heartbeat_deploy_key

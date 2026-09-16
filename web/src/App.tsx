@@ -50,6 +50,13 @@ function londonTime(iso: string | null | undefined): string {
   })
 }
 
+function secondsSince(iso: string | null | undefined): number | null {
+  if (!iso) return null
+  const ms = Date.parse(iso)
+  if (Number.isNaN(ms)) return null
+  return (Date.now() - ms) / 1000
+}
+
 function ageLabel(seconds: number | null | undefined): string {
   if (seconds == null) return '—'
   if (seconds < 90) return `${Math.round(seconds)}s ago`
@@ -109,7 +116,9 @@ export default function App() {
     }
   }, [])
 
-  const collecting = Boolean(collector?.reachable && collector?.healthy)
+  const age =
+    secondsSince(collector?.last_success_ts) ?? collector?.seconds_since_success
+  const collecting = age != null && age <= 600
 
   return (
     <div className="wrap">
@@ -135,7 +144,7 @@ export default function App() {
               <div className="stat-value">
                 {londonTime(collector?.last_success_ts)}
               </div>
-              <div className="meta">{ageLabel(collector?.seconds_since_success)}</div>
+              <div className="meta">{ageLabel(age)}</div>
             </div>
             <div>
               <div className="stat-label">Predictions that poll</div>
@@ -153,17 +162,11 @@ export default function App() {
           ) : null}
           {!collecting ? (
             <pre className="cmd">{`cd /opt/tube-delay-dynamics && git pull
-sudo collector/deploy/install-systemd.sh
-curl -sS http://127.0.0.1:8080/status
-
-# Oracle Cloud → tfl-collector → subnet → Security List
-# AND the VNIC Network Security Group (if one is attached):
-# Ingress  TCP  8080  source 0.0.0.0/0`}</pre>
+sudo collector/deploy/install-systemd.sh`}</pre>
           ) : null}
           <p className="meta">
-            This card is our archive heartbeat, not TfL’s public board below.
-            Raw JSONL never leaves the VM. A red card does not mean polling
-            stopped — only that this page cannot see port 8080.
+            This card is the archive heartbeat published outbound from the VM,
+            not TfL’s public board below. Raw JSONL never leaves the box.
           </p>
         </div>
       </header>
